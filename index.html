@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+
+<title>こえカタマリ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap">
+<style>
+  :root{
+    --sky:#7ec8f2; --sky2:#bfe6fb; --ink:#1d2a44; --btn:#ffffff; --accent:#ff5a5f;
+    --display:"Dela Gothic One","Hiragino Sans","Yu Gothic",sans-serif;
+  }
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--sky);color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",sans-serif;-webkit-user-select:none;user-select:none;touch-action:none}
+  #bg{position:fixed;inset:0;background:linear-gradient(var(--sky),var(--sky2))}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+  #cv{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #live{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 14px);
+    text-align:center;font-family:var(--display);font-size:20px;color:var(--ink);
+    padding:0 16px;opacity:.75;pointer-events:none;min-height:1.4em}
+  #bar{position:fixed;z-index:2;left:0;right:0;bottom:0;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;
+    padding:12px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 14px) max(16px,env(safe-area-inset-left,0px))}
+  button{font-family:var(--display);font-size:15px;border:0;border-radius:999px;padding:12px 18px;
+    background:var(--btn);color:var(--ink);box-shadow:0 4px 0 rgba(0,0,0,.18);cursor:pointer}
+  button:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.18)}
+  #mic{background:var(--accent);color:#fff;font-size:18px;padding:16px 26px}
+  #mic.on{background:#2bb673}
+  #typeRow{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 56px);z-index:2;display:none;justify-content:center;gap:8px;padding:0 16px}
+  #typeRow input{font-size:16px;padding:10px 14px;border-radius:999px;border:0;width:min(60vw,320px)}
+  #msg{position:fixed;left:16px;right:16px;top:40%;text-align:center;font-family:var(--display);font-size:18px;color:var(--ink);pointer-events:none}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<video id="cam" playsinline muted autoplay></video>
+<canvas id="cv"></canvas>
+<div id="live"></div>
+<div id="msg">マイクをおして しゃべってね</div>
+<div id="typeRow"><input id="typeIn" placeholder="もじを入れてとばす" enterkeyhint="send"><button id="typeGo">とばす</button></div>
+<div id="bar">
+  <button id="mic">🎤 しゃべる</button>
+  <button id="camBtn">📷 カメラ</button>
+  <button id="kbBtn">⌨️ 入力</button>
+  <button id="clear">🧹 けす</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+const {Engine, Bodies, Body, Composite} = Matter;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const engine = Engine.create(); engine.gravity.y = 1.1;
+const world = engine.world;
+let W=0,H=0,DPR=1,walls=[];
+const COLORS=['#ff5a5f','#ffb400','#3ec1d3','#7b61ff','#2bb673','#ff7ab6','#ff8a3d'];
+const MAX=260;
+let blocks=[];
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);
+  Composite.remove(world,walls);
+  const t=200;
+  walls=[
+    Bodies.rectangle(W/2,floorY()+t/2,W*3,t,{isStatic:true,restitution:.5}),
+    Bodies.rectangle(-t/2,H/2,t,H*4,{isStatic:true,restitution:.6}),
+    Bodies.rectangle(W+t/2,H/2,t,H*4,{isStatic:true,restitution:.6}),
+    Bodies.rectangle(W/2,-H-t/2,W*3,t,{isStatic:true})
+  ];
+  Composite.add(world,walls);
+}
+function floorY(){const bar=document.getElementById('bar');return H-(bar?bar.offsetHeight:0)+6;}
+addEventListener('resize',resize);resize();
+
+function fontSize(){return Math.max(44,Math.min(W,H)*0.14);}
+
+// しゃべった言葉をかたまりにして飛ばす
+function launch(text){
+  text=(text||'').replace(/\s+/g,'');
+  if(!text)return;
+  document.getElementById('msg').style.display='none';
+  const chars=[...text].slice(0,20);
+  const base=fontSize()*(chars.length>8?0.8:1);
+  const color=COLORS[Math.floor(Math.random()*COLORS.length)];
+  const dir=Math.random()<.5?-1:1;
+  chars.forEach((ch,i)=>{
+    setTimeout(()=>{
+      const s=base*(0.9+Math.random()*0.25);
+      const b=Bodies.rectangle(W/2+(Math.random()-.5)*40,floorY()-s,s,s,{
+        restitution:.55,friction:.3,frictionAir:.004,chamfer:{radius:s*.18},density:.002});
+      b.ch=ch;b.size=s;b.color=color;
+      Body.setVelocity(b,{x:dir*(4+Math.random()*7)+(Math.random()-.5)*6,y:-(18+Math.random()*10)*(H/800)});
+      Body.setAngularVelocity(b,(Math.random()-.5)*.4);
+      Composite.add(world,b);blocks.push(b);
+      if(blocks.length>MAX){Composite.remove(world,blocks.shift());}
+      pop(s);
+    },i*90);
+  });
+}
+
+// ぽんっ という音
+let actx=null;
+function pop(s){
+  try{
+    if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(),g=actx.createGain();
+    o.type='triangle';o.frequency.setValueAtTime(900-s*4,actx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(180,actx.currentTime+.12);
+    g.gain.setValueAtTime(.12,actx.currentTime);g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+.15);
+    o.connect(g).connect(actx.destination);o.start();o.stop(actx.currentTime+.16);
+  }catch(e){}
+}
+
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
+  r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
+  return `rgb(${r},${g},${b})`;
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  for(const b of blocks){
+    const s=b.size;
+    ctx.save();ctx.translate(b.position.x,b.position.y);ctx.rotate(b.angle);
+    ctx.font=`900 ${s*0.95}px ${getComputedStyle(document.documentElement).getPropertyValue('--display')}`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    // 立体の厚み
+    const depth=Math.max(4,s*0.1);
+    ctx.fillStyle=shade(b.color,-70);
+    for(let d=depth;d>0;d-=1.5){ctx.fillText(b.ch,d*.6,d);}
+    ctx.lineJoin='round';ctx.lineWidth=s*0.09;ctx.strokeStyle='#fff';
+    ctx.strokeText(b.ch,0,0);
+    ctx.fillStyle=b.color;ctx.fillText(b.ch,0,0);
+    ctx.restore();
+  }
+}
+
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(32,now-last);last=now;
+  Engine.update(engine,dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 画面タッチでかたまりをはじく
+cv.addEventListener('pointerdown',e=>{
+  for(const b of blocks){
+    const dx=b.position.x-e.clientX,dy=b.position.y-e.clientY,d=Math.hypot(dx,dy);
+    if(d<160){Body.setVelocity(b,{x:dx/d*12||0,y:-14});}
+  }
+});
+
+// 音声認識
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const micBtn=document.getElementById('mic'),live=document.getElementById('live');
+let rec=null,listening=false;
+if(!SR){
+  micBtn.textContent='🎤 このブラウザは非対応';
+  document.getElementById('msg').textContent='このブラウザでは声がつかえません。⌨️入力でためしてね';
+}
+function startRec(){
+  rec=new SR();rec.lang='ja-JP';rec.interimResults=true;rec.continuous=true;
+  rec.onresult=e=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const r=e.results[i];
+      if(r.isFinal){launch(r[0].transcript);live.textContent='';}
+      else interim+=r[0].transcript;
+    }
+    if(interim)live.textContent=interim;
+  };
+  rec.onerror=e=>{
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+      listening=false;setMicUI();
+      live.textContent='マイクが許可されていません';
+    }
+  };
+  // 止まったら自動で再開（調子が悪くなる対策）
+  rec.onend=()=>{if(listening){setTimeout(()=>{try{startRec();}catch(e){}},250);}};
+  try{rec.start();}catch(e){}
+}
+function setMicUI(){micBtn.classList.toggle('on',listening);micBtn.textContent=listening?'🎤 きいてるよ（とめる）':'🎤 しゃべる';}
+micBtn.onclick=()=>{
+  if(!SR)return;
+  pop(40);
+  listening=!listening;setMicUI();
+  if(listening){document.getElementById('msg').style.display='none';startRec();}
+  else{try{rec&&rec.stop();}catch(e){} live.textContent='';}
+};
+
+// カメラ背景
+const cam=document.getElementById('cam');let camStream=null;
+document.getElementById('camBtn').onclick=async()=>{
+  if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;cam.style.display='none';return;}
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+    cam.srcObject=camStream;cam.style.display='block';
+  }catch(e){live.textContent='カメラがつかえませんでした';}
+};
+
+// 文字入力
+const typeRow=document.getElementById('typeRow'),typeIn=document.getElementById('typeIn');
+document.getElementById('kbBtn').onclick=()=>{
+  const show=typeRow.style.display!=='flex';typeRow.style.display=show?'flex':'none';if(show)typeIn.focus();
+};
+function sendTyped(){launch(typeIn.value);typeIn.value='';}
+document.getElementById('typeGo').onclick=sendTyped;
+typeIn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)sendTyped();});
+
+document.getElementById('clear').onclick=()=>{blocks.forEach(b=>Composite.remove(world,b));blocks=[];};
+
+// フォントの読み込み待ち
+if(document.fonts)document.fonts.load('40px "Dela Gothic One"','あ');
+</script>
+</body>
+</html>
